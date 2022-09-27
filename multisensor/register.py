@@ -19,19 +19,43 @@ def parse_args():
     return args
 
 
-def main(camera_file):
+def parse_transforms(camera_file):
     # Load the xml file
     tree = ET.parse(camera_file)
     root = tree.getroot()
     # Iterate through the camera poses
+
+    labels = []
+    transforms = []
     for camera in root[0][2]:
         # Print the filename
-        print camera.attrib["label"]
         # Get the transform as a (16,) vector
         transform = camera[0].text
         transform = np.fromstring(transform, sep=" ")
         transform = transform.reshape((4, 4))
-        print (transform)
+        labels.append(camera.attrib["label"])
+        transforms.append(transform)
+    return labels, transforms
+
+
+def project(transform, point=np.array([0, 0, 0]), scale=1.1339053033529039e01):
+    point = point / scale
+    point = np.concatenate((point, [1]))
+    return np.dot(transform, point)[:3] * scale
+
+
+def main(camera_file):
+    labels, transforms = parse_transforms(camera_file)
+
+    centers = []
+    points_in_front = []
+    for transform in transforms:
+        centers.append(project(transform))
+        points_in_front.append(project(transform, point=np.array([0, 0, 1])))
+    centers = np.vstack(centers)
+    points_in_front = np.vstack(points_in_front)
+    np.save("data/centers.npy", centers)
+    np.save("data/points_in_front.npy", points_in_front)
 
 
 if __name__ == "__main__":
