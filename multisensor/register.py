@@ -10,8 +10,7 @@ import xml.etree.ElementTree as ET
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--camera-file",
-        default="/media/frc-ag-1/Elements/data/ISU/data/site_mungbean_2/08_04_22/collect_2/processed_2/left_image_cameras.xml",
+        "--camera-file", default="data/left_image_cameras.xml",
     )
     parser.add_argument("--bagfile")
     parser.add_argument("--topic", default="/left/mapping/image_raw")
@@ -38,10 +37,33 @@ def parse_transforms(camera_file):
     return labels, transforms
 
 
-def project(transform, point=np.array([0, 0, 0]), scale=1.1339053033529039e01):
-    point = point / scale
-    point = np.concatenate((point, [1]))
-    return np.dot(transform, point)[:3] * scale
+def project(transform, points=np.array([[0, 0, 0]]), scale=1.1339053033529039e01):
+    """
+    Arguments
+        transform: (4,4)
+            Camera to world
+        points: (n, 3)
+            Points to project
+        scale: scalar
+            multiplier on input scale
+    """
+    points = points / scale
+    ones = np.ones((points.shape[0], 1))
+    points = np.concatenate((points, ones), axis=1)
+    return np.dot(transform, points.T).T[:, :3] * scale
+
+
+def sample_points():
+    """
+    Create example data
+    """
+    xs = np.linspace(-30, 30, 21)
+    ys = np.linspace(-10, 10, 21)
+    xs, ys = np.meshgrid(xs, ys)
+    xs, ys = [grid.flatten() for grid in (xs, ys)]
+    zs = np.ones_like(xs) * 30
+    xyzs = np.vstack((xs, ys, zs)).T
+    return xyzs
 
 
 def main(camera_file):
@@ -49,9 +71,11 @@ def main(camera_file):
 
     centers = []
     points_in_front = []
+    lidar_points = sample_points()
+
     for transform in transforms:
         centers.append(project(transform))
-        points_in_front.append(project(transform, point=np.array([0, 0, 1])))
+        points_in_front.append(project(transform, points=lidar_points))
     centers = np.vstack(centers)
     points_in_front = np.vstack(points_in_front)
     np.save("data/centers.npy", centers)
