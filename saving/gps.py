@@ -55,7 +55,7 @@ def set_gps_location(file_name, lat, lng, altitude):
 
     gps_ifd = {
         piexif.GPSIFD.GPSVersionID: (2, 0, 0, 0),
-        piexif.GPSIFD.GPSAltitudeRef: 1,
+        piexif.GPSIFD.GPSAltitudeRef: 0,  # Above sea level
         piexif.GPSIFD.GPSAltitude: change_to_rational(round(altitude)),
         piexif.GPSIFD.GPSLatitudeRef: lat_deg[3],
         piexif.GPSIFD.GPSLatitude: exiv_lat,
