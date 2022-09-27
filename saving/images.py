@@ -3,9 +3,14 @@
 
 # Copyright 2016 Massachusetts Institute of Technology
 
+
 """Extract images from a rosbag.
 """
 
+import imp
+import pdb
+from tkinter import image_names
+import piexif
 import argparse
 import os
 import pdb
@@ -16,6 +21,7 @@ from cv_bridge import CvBridge
 import numpy as np
 from glob import glob
 import matplotlib.pyplot as plt
+from gps import set_gps_location
 
 DEBAYER_MAP = {"BG": cv2.COLOR_BayerBG2RGB, "GB": cv2.COLOR_BayerGB2RGB}
 
@@ -70,10 +76,18 @@ def save_images_from_bag(
     last_time=0,
     debayer_mode="GB",
     video_writer=None,
+    GPS_topic="/dji_sdk/gps_position",
 ):
     bag = rosbag.Bag(bag_file, "r")
     bridge = CvBridge()
-    for _, msg, t in bag.read_messages(topics=[image_topic]):
+
+    last_gps = None
+
+    for topic, msg, t in bag.read_messages(topics=[image_topic, GPS_topic]):
+        if topic == GPS_topic:
+            last_gps = msg
+            continue
+
         if (t.to_time() - last_time) < delta:
             continue
 
@@ -83,7 +97,14 @@ def save_images_from_bag(
 
         if flip:
             img = np.flip(img, axis=2)
-        cv2.imwrite(os.path.join(output_dir, "time_%07f.jpg" % t.to_time()), img)
+        image_name = os.path.join(output_dir, "time_%07f.jpg" % t.to_time())
+        cv2.imwrite(image_name, img)
+
+        if last_gps is not None:
+            set_gps_location(
+                image_name, last_gps.latitude, last_gps.longitude, last_gps.altitude
+            )
+
         if video_writer is not None:
             video_writer.write(img)
         last_time = t.to_time()
@@ -107,6 +128,7 @@ def main():
         args.output_dir, args.image_topic[1:-10].replace("/", "_")
     )
 
+    print(output_dir)
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
 
