@@ -1,9 +1,16 @@
+#!/usr/bin/env python
+import rospy
+from sensor_msgs.msg import PointCloud2, Image
+
+
 import argparse
 
 import rosbag
 from cv_bridge import CvBridge
+import ros_numpy
 import numpy as np
 import pdb
+from glob import glob
 import xml.etree.ElementTree as ET
 
 
@@ -12,7 +19,11 @@ def parse_args():
     parser.add_argument(
         "--camera-file", default="data/left_image_cameras.xml",
     )
-    parser.add_argument("--bagfile")
+    parser.add_argument(
+        "--bag-files",
+        default="/media/frc-ag-1/Elements/data/ISU/data/site_mungbean_2/08_04_22/collect_2/raw/*.bag",
+        help="Filename or quoted glob string",
+    )
     parser.add_argument("--topic", default="/left/mapping/image_raw")
     args = parser.parse_args()
     return args
@@ -66,22 +77,73 @@ def sample_points():
     return xyzs
 
 
-def main(camera_file):
-    labels, transforms = parse_transforms(camera_file)
+class Projector:
+    def __init__(
+        self,
+        lidar_topic="/velodyne_points",
+        left_cam_topic="/left/camera/image_color",
+        right_cam_topic="/right/camera/image_color",
+        spectral_cam_topic="/webcam/image_raw",
+    ):
+        self.lidar_topic = lidar_topic
+        self.left_cam_topic = left_cam_topic
+        self.right_cam_topic = right_cam_topic
+        self.spectral_cam_topic = spectral_cam_topic
 
-    centers = []
-    points_in_front = []
-    lidar_points = sample_points()
+        self.left_image_since_lidar = False
+        self.right_image_since_lidar = False
+        self.spectral_image_since_lidar = False
+        self.current_lidar = None
 
-    for transform in transforms:
-        centers.append(project(transform))
-        points_in_front.append(project(transform, points=lidar_points))
-    centers = np.vstack(centers)
-    points_in_front = np.vstack(points_in_front)
-    np.save("data/centers.npy", centers)
-    np.save("data/points_in_front.npy", points_in_front)
+    def setup_transforms(self, camera_file):
+        self.labels, self.transforms = parse_transforms(camera_file)
+
+    def lidar_callback(self, data):
+        self.current_lidar = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
+
+    def left_camera_callback(self, data):
+        pass
+
+    def right_camera_callback(self, data):
+        pass
+
+    def spectral_camera_callback(self, data):
+        pass
+
+    def listen(self):
+        # In ROS, nodes are uniquely named. If two nodes with the same
+        # name are launched, the previous one is kicked off. The
+        # anonymous=True flag means that rospy will choose a unique
+        # name for our 'listener' node so that multiple listeners can
+        # run simultaneously.
+        rospy.init_node("listener", anonymous=True)
+
+        rospy.Subscriber(self.lidar_topic, PointCloud2, self.lidar_callback)
+        rospy.Subscriber(self.left_cam_topic, Image, self.left_camera_callback)
+        rospy.Subscriber(self.right_cam_topic, Image, self.right_camera_callback)
+        rospy.Subscriber(self.spectral_cam_topic, Image, self.spectral_camera_callback)
+
+        # spin() simply keeps python from exiting until this node is stopped
+        rospy.spin()
+
+    def example_projection(self):
+        centers = []
+        points_in_front = []
+        lidar_points = sample_points()
+
+        for transform in self.ftransforms:
+            centers.append(project(transform))
+            points_in_front.append(project(transform, points=lidar_points))
+
+        centers = np.vstack(centers)
+        points_in_front = np.vstack(points_in_front)
+        np.save("data/centers.npy", centers)
+        np.save("data/points_in_front.npy", points_in_front)
 
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.camera_file)
+    projector = Projector()
+    projector.setup_transforms(args.camera_file)
+    projector.listen()
+
