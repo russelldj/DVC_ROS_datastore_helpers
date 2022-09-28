@@ -1,29 +1,32 @@
 import argparse
 import numpy as np
 import pyvista as pv
+from pathlib import Path
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("centers")
-    parser.add_argument("points_in_front")
+    parser.add_argument("--centers", default="data/centers.npy")
+    parser.add_argument("--transformed_dir", default="data/global_clouds")
     args = parser.parse_args()
     return args
 
 
-def main(centers_filename, points_in_front_filename):
+def main(centers_filename, transformed_dir):
     centers = np.load(centers_filename)
-    points_in_front = np.load(points_in_front_filename)
+    files = Path(transformed_dir).glob("*")
+    lidar_points = np.concatenate([np.load(x) for x in files], axis=0)
+
     center_points = pv.PolyData(centers)
-    front_points = pv.PolyData(points_in_front)
+    lidar_points = pv.PolyData(lidar_points)
 
     plotter = pv.Plotter()
-    plotter.add_mesh(front_points, color="b")
+    plotter.add_mesh(lidar_points, color="b")
     plotter.add_mesh(center_points, color="r")
     plotter.show()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.centers, args.points_in_front)
+    main(args.centers, args.transformed_dir)
 

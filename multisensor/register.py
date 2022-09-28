@@ -4,7 +4,7 @@ from sensor_msgs.msg import PointCloud2, Image
 
 
 import argparse
-
+import os
 import rosbag
 from cv_bridge import CvBridge
 import ros_numpy
@@ -84,7 +84,12 @@ class Projector:
         left_cam_topic="/left/camera/image_color",
         right_cam_topic="/right/camera/image_color",
         spectral_cam_topic="/webcam/image_raw",
+        output_dir="data/global_clouds",
     ):
+        if not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+        self.output_dir = output_dir
+
         self.lidar_topic = lidar_topic
         self.left_cam_topic = left_cam_topic
         self.right_cam_topic = right_cam_topic
@@ -95,11 +100,28 @@ class Projector:
         self.spectral_image_since_lidar = False
         self.current_lidar = None
 
+        self.static_transform = np.array(
+            [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
+        )
+
     def setup_transforms(self, camera_file):
-        self.labels, self.transforms = parse_transforms(camera_file)
+        image_names, self.transforms = parse_transforms(camera_file)
+        self.transform_timestamps = np.array([float(x[5:]) for x in image_names])
+        print("Done setting up transforms")
+
+    def get_closest_tranform(self, timestamp):
+        diff = np.abs(self.transform_timestamps - timestamp)
+        index = np.argmin(diff)
+        return self.transforms[index]
 
     def lidar_callback(self, data):
+        # Get the timestep
+        time = data.header.stamp.to_time()
+        transform = np.dot(self.get_closest_tranform(time), self.static_transform)
         self.current_lidar = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
+        transformed_lidar = project(transform=transform, points=self.current_lidar)
+        output_filename = os.path.join(self.output_dir, "lidar_" + str(time) + ".npy")
+        np.save(output_filename, transformed_lidar)
 
     def left_camera_callback(self, data):
         pass
