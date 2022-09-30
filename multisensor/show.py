@@ -14,7 +14,7 @@ def parse_args():
 
 def main(centers_filename, transformed_dir):
     centers = np.load(centers_filename)
-    files = Path(transformed_dir).glob("*")
+    files = Path(transformed_dir).glob("*npy")
     lidar_points = np.concatenate([np.load(x) for x in files], axis=0)
 
     center_points = pv.PolyData(centers)

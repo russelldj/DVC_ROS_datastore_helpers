@@ -52,7 +52,7 @@ def parse_transforms(camera_file):
     cx = float(root[0][0][0][4][2].text)
     cy = float(root[0][0][0][4][3].text)
 
-    return labels, transforms, f, cx, cy
+    return labels, np.array(transforms), f, cx, cy
 
 
 def project(transform, points=np.array([[0, 0, 0]]), scale=1.1339053033529039e01):
@@ -130,6 +130,7 @@ class Projector:
         image_names, self.transforms, self.f, self.cx, self.cy = parse_transforms(
             camera_file
         )
+
         self.transform_timestamps = np.array([float(x[5:]) for x in image_names])
 
         # In the agisoft convention, cx, cy are measured from the image center
@@ -147,10 +148,32 @@ class Projector:
         index = np.argmin(diff)
         return self.transforms[index]
 
+    def get_interpolated_transform(self, timestamp, interpolate_rotations=True):
+        """
+        Take the interpolation between the nearest two transforms
+
+        Note that we average the rotations in matrix space,
+        which means that THEY ARE NOT VALID ROTATIONS. 
+        However, this approximation is fine for very slow rotations
+        """
+        diff = np.abs(self.transform_timestamps - timestamp)
+        sorted_diff = np.argsort(diff)
+        closest_transforms = self.transforms[sorted_diff[:2]]
+        closest_diffs = diff[sorted_diff[:2]]
+        weights = closest_diffs / np.sum(closest_diffs)
+        # TODO, look at real rotation interpolation
+        weighted_transform = np.sum(
+            [c * w for c, w in zip(closest_transforms, weights)], axis=0
+        )
+        if not interpolate_rotations:
+            weighted_transform[:3, :3] = closest_transforms[0, :3, :3]
+
+        return weighted_transform
+
     def lidar_callback(self, data, return_valid=True):
         # Get the timestep
         time = data.header.stamp.to_time()
-        transform = np.dot(self.get_closest_tranform(time), self.static_transform)
+        transform = np.dot(self.get_interpolated_transform(time), self.static_transform)
         self.current_lidar = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
 
         local_lidar = project(
