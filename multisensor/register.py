@@ -1,12 +1,15 @@
 #!/usr/bin/env python
+from turtle import color
 import rospy
 from sensor_msgs.msg import PointCloud2, Image
+from project import texture_lidar
 
 
 import argparse
 import os
 import rosbag
 from cv_bridge import CvBridge
+import cv2
 import ros_numpy
 import numpy as np
 import pdb
@@ -89,6 +92,7 @@ class Projector:
         right_cam_topic="/right/camera/image_color",
         spectral_cam_topic="/webcam/image_raw",
         output_dir="data/global_clouds",
+        image_width=2000,
     ):
         if not os.path.isdir(output_dir):
             os.makedirs(output_dir)
@@ -110,6 +114,13 @@ class Projector:
             [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
         )
 
+        self.image_width = image_width
+        self.image_height = image_width
+
+        self.left_image = None
+        self.right_image = None
+        self.spectral_image = None
+
         self.f = None
         self.cx = None
         self.cy = None
@@ -121,8 +132,13 @@ class Projector:
         )
         self.transform_timestamps = np.array([float(x[5:]) for x in image_names])
 
+        # In the agisoft convention, cx, cy are measured from the image center
         self.intrinsics = np.array(
-            [[self.f, 0, self.cx], [0, self.f, self.cy], [0, 0, 1]]
+            [
+                [self.f, 0, self.cx + self.image_width / 2],
+                [0, self.f, self.cy + self.image_height / 2],
+                [0, 0, 1],
+            ]
         )
         print("Done setting up transforms")
 
@@ -131,24 +147,40 @@ class Projector:
         index = np.argmin(diff)
         return self.transforms[index]
 
-    def lidar_callback(self, data):
+    def lidar_callback(self, data, return_valid=True):
         # Get the timestep
         time = data.header.stamp.to_time()
         transform = np.dot(self.get_closest_tranform(time), self.static_transform)
         self.current_lidar = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
+
+        local_lidar = project(
+            transform=self.static_transform, points=self.current_lidar
+        )
+        colors, valid_inds = texture_lidar(
+            local_lidar, self.left_image, self.intrinsics
+        )
+        if self.left_image is None:
+            return
         transformed_lidar = project(transform=transform, points=self.current_lidar)
+        colored_lidar = np.concatenate((transformed_lidar, colors), axis=1)
+        # Only return the points with color
+        if return_valid:
+            colored_lidar = colored_lidar[valid_inds]
         output_filename = os.path.join(self.output_dir, "lidar_" + str(time) + ".npy")
-        np.save(output_filename, transformed_lidar)
+        np.save(output_filename, colored_lidar)
 
     def left_camera_callback(self, msg):
-        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-        pdb.set_trace()
+        self.left_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
 
     def right_camera_callback(self, msg):
-        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        self.right_image = self.bridge.imgmsg_to_cv2(
+            msg, desired_encoding="passthrough"
+        )
 
     def spectral_camera_callback(self, msg):
-        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        self.spectral_image = self.bridge.imgmsg_to_cv2(
+            msg, desired_encoding="passthrough"
+        )
 
     def listen(self):
         # In ROS, nodes are uniquely named. If two nodes with the same

@@ -18,11 +18,13 @@ def main(centers_filename, transformed_dir):
     lidar_points = np.concatenate([np.load(x) for x in files], axis=0)
 
     center_points = pv.PolyData(centers)
-    lidar_points = pv.PolyData(lidar_points)
+    colors = np.flip(lidar_points[:, 3:], axis=1)
+    lidar_points = pv.PolyData(lidar_points[:, :3])
 
     plotter = pv.Plotter()
-    plotter.add_mesh(lidar_points, color="b")
+    plotter.add_mesh(lidar_points, scalars=colors / 255.0, rgb=True)
     plotter.add_mesh(center_points, color="r")
+    plotter.add_axes()
     plotter.show()
 
 
