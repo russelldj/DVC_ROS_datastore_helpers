@@ -45,7 +45,11 @@ def parse_transforms(camera_file):
         transform = transform.reshape((4, 4))
         labels.append(camera.attrib["label"])
         transforms.append(transform)
-    return labels, transforms
+    f = float(root[0][0][0][4][1].text)
+    cx = float(root[0][0][0][4][2].text)
+    cy = float(root[0][0][0][4][3].text)
+
+    return labels, transforms, f, cx, cy
 
 
 def project(transform, points=np.array([[0, 0, 0]]), scale=1.1339053033529039e01):
@@ -100,13 +104,26 @@ class Projector:
         self.spectral_image_since_lidar = False
         self.current_lidar = None
 
+        self.bridge = CvBridge()
+
         self.static_transform = np.array(
             [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
         )
 
+        self.f = None
+        self.cx = None
+        self.cy = None
+        self.intrinsics = None
+
     def setup_transforms(self, camera_file):
-        image_names, self.transforms = parse_transforms(camera_file)
+        image_names, self.transforms, self.f, self.cx, self.cy = parse_transforms(
+            camera_file
+        )
         self.transform_timestamps = np.array([float(x[5:]) for x in image_names])
+
+        self.intrinsics = np.array(
+            [[self.f, 0, self.cx], [0, self.f, self.cy], [0, 0, 1]]
+        )
         print("Done setting up transforms")
 
     def get_closest_tranform(self, timestamp):
@@ -123,14 +140,15 @@ class Projector:
         output_filename = os.path.join(self.output_dir, "lidar_" + str(time) + ".npy")
         np.save(output_filename, transformed_lidar)
 
-    def left_camera_callback(self, data):
-        pass
+    def left_camera_callback(self, msg):
+        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        pdb.set_trace()
 
-    def right_camera_callback(self, data):
-        pass
+    def right_camera_callback(self, msg):
+        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
 
-    def spectral_camera_callback(self, data):
-        pass
+    def spectral_camera_callback(self, msg):
+        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
 
     def listen(self):
         # In ROS, nodes are uniquely named. If two nodes with the same
