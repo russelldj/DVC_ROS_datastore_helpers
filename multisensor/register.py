@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-from turtle import color
+from bdb import set_trace
+from turtle import color, width
 import rospy
 from sensor_msgs.msg import PointCloud2, Image
 from project import texture_lidar
@@ -18,14 +19,9 @@ import xml.etree.ElementTree as ET
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser("Rosnode for projection")
     parser.add_argument(
         "--camera-file", default="data/left_image_cameras.xml",
-    )
-    parser.add_argument(
-        "--bag-files",
-        default="/media/frc-ag-1/Elements/data/ISU/data/site_mungbean_2/08_04_22/collect_2/raw/*.bag",
-        help="Filename or quoted glob string",
     )
     parser.add_argument("--topic", default="/left/mapping/image_raw")
     args = parser.parse_args()
@@ -52,7 +48,12 @@ def parse_transforms(camera_file):
     cx = float(root[0][0][0][4][2].text)
     cy = float(root[0][0][0][4][3].text)
 
-    return labels, np.array(transforms), f, cx, cy
+    scale = float(root[0][1][0][0][2].text)
+
+    width = float(root[0][0][0][4][0].get("width"))
+    height = float(root[0][0][0][4][0].get("height"))
+
+    return labels, np.array(transforms), f, cx, cy, scale, width, height
 
 
 def project(transform, points=np.array([[0, 0, 0]]), scale=1.1339053033529039e01):
@@ -92,7 +93,7 @@ class Projector:
         right_cam_topic="/right/camera/image_color",
         spectral_cam_topic="/webcam/image_raw",
         output_dir="data/global_clouds",
-        image_width=2000,
+        return_valid=False,
     ):
         if not os.path.isdir(output_dir):
             os.makedirs(output_dir)
@@ -102,6 +103,8 @@ class Projector:
         self.left_cam_topic = left_cam_topic
         self.right_cam_topic = right_cam_topic
         self.spectral_cam_topic = spectral_cam_topic
+
+        self.return_valid = return_valid
 
         self.left_image_since_lidar = False
         self.right_image_since_lidar = False
@@ -114,8 +117,10 @@ class Projector:
             [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
         )
 
-        self.image_width = image_width
-        self.image_height = image_width
+        self.interp_threshold = 1
+
+        self.image_width = None
+        self.image_height = None
 
         self.left_image = None
         self.right_image = None
@@ -124,12 +129,20 @@ class Projector:
         self.f = None
         self.cx = None
         self.cy = None
+        self.scale = None
         self.intrinsics = None
 
     def setup_transforms(self, camera_file):
-        image_names, self.transforms, self.f, self.cx, self.cy = parse_transforms(
-            camera_file
-        )
+        (
+            image_names,
+            self.transforms,
+            self.f,
+            self.cx,
+            self.cy,
+            self.scale,
+            self.image_width,
+            self.image_height,
+        ) = parse_transforms(camera_file)
 
         self.transform_timestamps = np.array([float(x[5:]) for x in image_names])
 
@@ -160,6 +173,8 @@ class Projector:
         sorted_diff = np.argsort(diff)
         closest_transforms = self.transforms[sorted_diff[:2]]
         closest_diffs = diff[sorted_diff[:2]]
+        if np.min(closest_diffs) > self.interp_threshold:
+            return None
         weights = closest_diffs / np.sum(closest_diffs)
         # TODO, look at real rotation interpolation
         weighted_transform = np.sum(
@@ -170,14 +185,18 @@ class Projector:
 
         return weighted_transform
 
-    def lidar_callback(self, data, return_valid=True):
+    def lidar_callback(self, data):
         # Get the timestep
         time = data.header.stamp.to_time()
-        transform = np.dot(self.get_interpolated_transform(time), self.static_transform)
+        dynamic_transform = self.get_interpolated_transform(time)
+        if dynamic_transform is None:
+            print("Invalid interpolation for time " + str(time))
+            return
+        transform = np.dot(dynamic_transform, self.static_transform)
         self.current_lidar = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
 
         local_lidar = project(
-            transform=self.static_transform, points=self.current_lidar
+            transform=self.static_transform, points=self.current_lidar, scale=self.scale
         )
         colors, valid_inds = texture_lidar(
             local_lidar, self.left_image, self.intrinsics
@@ -187,7 +206,7 @@ class Projector:
         transformed_lidar = project(transform=transform, points=self.current_lidar)
         colored_lidar = np.concatenate((transformed_lidar, colors), axis=1)
         # Only return the points with color
-        if return_valid:
+        if self.return_valid:
             colored_lidar = colored_lidar[valid_inds]
         output_filename = os.path.join(self.output_dir, "lidar_" + str(time) + ".npy")
         np.save(output_filename, colored_lidar)
@@ -221,24 +240,20 @@ class Projector:
         # spin() simply keeps python from exiting until this node is stopped
         rospy.spin()
 
-    def example_projection(self):
+    def save_centers(self):
         centers = []
-        points_in_front = []
-        lidar_points = sample_points()
 
-        for transform in self.ftransforms:
+        for transform in self.transforms:
             centers.append(project(transform))
-            points_in_front.append(project(transform, points=lidar_points))
 
         centers = np.vstack(centers)
-        points_in_front = np.vstack(points_in_front)
         np.save("data/centers.npy", centers)
-        np.save("data/points_in_front.npy", points_in_front)
 
 
 if __name__ == "__main__":
     args = parse_args()
     projector = Projector()
     projector.setup_transforms(args.camera_file)
+    projector.save_centers()
     projector.listen()
 
