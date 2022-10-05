@@ -24,6 +24,7 @@ def parse_args():
         "--camera-file", default="data/left_image_cameras.xml",
     )
     parser.add_argument("--topic", default="/left/mapping/image_raw")
+    parser.add_argument("--output-dir", default="/data/global_cloud")
     args = parser.parse_args()
     return args
 
@@ -36,19 +37,21 @@ def parse_transforms(camera_file):
 
     labels = []
     transforms = []
+
+    scale = float(root[0][1][0][0][2].text)
     for camera in root[0][2]:
         # Print the filename
         # Get the transform as a (16,) vector
         transform = camera[0].text
         transform = np.fromstring(transform, sep=" ")
         transform = transform.reshape((4, 4))
+        # Fix the fact that the transforms are reported in a local scale
+        transform[:3, 3] = transform[:3, 3] * scale
         labels.append(camera.attrib["label"])
         transforms.append(transform)
     f = float(root[0][0][0][4][1].text)
     cx = float(root[0][0][0][4][2].text)
     cy = float(root[0][0][0][4][3].text)
-
-    scale = float(root[0][1][0][0][2].text)
 
     width = float(root[0][0][0][4][0].get("width"))
     height = float(root[0][0][0][4][0].get("height"))
@@ -56,7 +59,7 @@ def parse_transforms(camera_file):
     return labels, np.array(transforms), f, cx, cy, scale, width, height
 
 
-def project(transform, points=np.array([[0, 0, 0]]), scale=1.1339053033529039e01):
+def project(transform, points=np.array([[0, 0, 0]])):
     """
     Arguments
         transform: (4,4)
@@ -66,10 +69,9 @@ def project(transform, points=np.array([[0, 0, 0]]), scale=1.1339053033529039e01
         scale: scalar
             multiplier on input scale
     """
-    points = points / scale
     ones = np.ones((points.shape[0], 1))
     points = np.concatenate((points, ones), axis=1)
-    return np.dot(transform, points.T).T[:, :3] * scale
+    return np.dot(transform, points.T).T[:, :3]
 
 
 def sample_points():
@@ -113,11 +115,45 @@ class Projector:
 
         self.bridge = CvBridge()
 
-        self.static_transform = np.array(
-            [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
+        T_cam_imu = np.array(
+            [
+                [
+                    -0.99998569330517,
+                    0.0049197739095669015,
+                    -0.00209976419080755,
+                    0.1182083514751753,
+                ],
+                [
+                    -0.002134472512626063,
+                    -0.007060263954729037,
+                    0.9999727979800161,
+                    0.0553722126932697,
+                ],
+                [
+                    0.004904815192348908,
+                    0.9999629735633055,
+                    0.0070706640678654875,
+                    -0.1544434391424575,
+                ],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
         )
 
-        self.interp_threshold = 1
+        imu_to_lidar = np.array(
+            [
+                [0.0580015, -0.998292, 0.00692635, 0],
+                [0.998316, 0.0579958, -0.00101483, 0],
+                [0.000611399, 0.00697355, 0.999975, 0],
+                [0, 0, 0, 1],
+            ]
+        )
+        static = np.dot(T_cam_imu, imu_to_lidar)
+        self.static_transform = static
+        # self.static_transform = np.array(
+        #    [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
+        # )
+
+        self.interp_threshold = 0.3
 
         self.image_width = None
         self.image_height = None
@@ -196,7 +232,7 @@ class Projector:
         self.current_lidar = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
 
         local_lidar = project(
-            transform=self.static_transform, points=self.current_lidar, scale=self.scale
+            transform=self.static_transform, points=self.current_lidar
         )
         colors, valid_inds = texture_lidar(
             local_lidar, self.left_image, self.intrinsics
@@ -252,7 +288,7 @@ class Projector:
 
 if __name__ == "__main__":
     args = parse_args()
-    projector = Projector()
+    projector = Projector(output_dir=args.output_dir)
     projector.setup_transforms(args.camera_file)
     projector.save_centers()
     projector.listen()
