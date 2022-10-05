@@ -11,11 +11,12 @@ def parse_args():
     parser.add_argument("--start", default=0, type=int)
     parser.add_argument("--step", default=1, type=int)
     parser.add_argument("--number", default=-1, type=int)
+    parser.add_argument("--filter-gray", action="store_true")
     args = parser.parse_args()
     return args
 
 
-def main(centers_filename, transformed_dir, step, number):
+def main(centers_filename, transformed_dir, step, number, filter_gray):
     centers = np.load(centers_filename)
     files = sorted(Path(transformed_dir).glob("*npy"))[:number:step]
     lidar_points = np.concatenate([np.load(x) for x in files], axis=0)
@@ -27,7 +28,8 @@ def main(centers_filename, transformed_dir, step, number):
             lidar_points[:, 5] == 128,
         ]
     )
-    lidar_points = lidar_points[np.logical_not(gray)]
+    if filter_gray:
+        lidar_points = lidar_points[np.logical_not(gray)]
 
     center_points = pv.PolyData(centers)
     colors = np.flip(lidar_points[:, 3:], axis=1)
@@ -42,5 +44,5 @@ def main(centers_filename, transformed_dir, step, number):
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.centers, args.transformed_dir, args.step, args.number)
+    main(args.centers, args.transformed_dir, args.step, args.number, args.filter_gray)
 
