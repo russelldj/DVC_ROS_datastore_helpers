@@ -24,7 +24,7 @@ def parse_args():
         "--camera-file", default="data/left_image_cameras.xml",
     )
     parser.add_argument("--topic", default="/left/mapping/image_raw")
-    parser.add_argument("--output-dir", default="/data/global_cloud")
+    parser.add_argument("--output-dir", default="data/global_clouds")
     args = parser.parse_args()
     return args
 
@@ -57,6 +57,12 @@ def parse_transforms(camera_file):
     height = float(root[0][0][0][4][0].get("height"))
 
     return labels, np.array(transforms), f, cx, cy, scale, width, height
+
+
+def texture_points(static_transform, intrinsics, image, lidar):
+    local_lidar = project(transform=static_transform, points=lidar)
+    colors, valid_inds = texture_lidar(local_lidar, image, intrinsics)
+    return colors, valid_inds
 
 
 def project(transform, points=np.array([[0, 0, 0]])):
@@ -139,6 +145,30 @@ class Projector:
             ]
         )
 
+        T_webcam_imu = np.array(
+            [
+                [
+                    -0.9994775591449685,
+                    0.031673545579871606,
+                    -0.006433916071405074,
+                    -0.017859043443570324,
+                ],
+                [
+                    -0.007604710482474351,
+                    -0.03698383696904212,
+                    0.9992869278548194,
+                    0.18468717847515795,
+                ],
+                [
+                    0.03141300915372218,
+                    0.9988137876068016,
+                    0.03720538324572214,
+                    -0.3402737274615198,
+                ],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+
         imu_to_lidar = np.array(
             [
                 [0.0580015, -0.998292, 0.00692635, 0],
@@ -149,9 +179,20 @@ class Projector:
         )
         static = np.dot(T_cam_imu, imu_to_lidar)
         self.static_transform = static
+
+        self.lidar_to_webcam = np.dot(T_webcam_imu, imu_to_lidar)
         # self.static_transform = np.array(
         #    [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
         # )
+
+        # 1370.9319648854678, 1375.1029242597742, 559.243917571812, 425.3570680223578
+        self.spectral_intrinsics = np.array(
+            [
+                [1370.93196, 0, 559.243917571812],
+                [0, 1375.1029242597742, 425.3570680223578],
+                [0, 0, 1],
+            ]
+        )
 
         self.interp_threshold = 0.3
 
@@ -231,13 +272,17 @@ class Projector:
         transform = np.dot(dynamic_transform, self.static_transform)
         self.current_lidar = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
 
-        local_lidar = project(
-            transform=self.static_transform, points=self.current_lidar
-        )
+        # colors, valid_inds = texture_lidar(
+        #    self.current_lidar, self.left_image, self.intrinsics, self.static_transform
+        # )
         colors, valid_inds = texture_lidar(
-            local_lidar, self.left_image, self.intrinsics
+            self.current_lidar,
+            self.spectral_image,
+            self.spectral_intrinsics,
+            self.lidar_to_webcam,
         )
-        if self.left_image is None:
+
+        if self.left_image is None or self.spectral_image is None:
             return
         transformed_lidar = project(transform=transform, points=self.current_lidar)
         colored_lidar = np.concatenate((transformed_lidar, colors), axis=1)
