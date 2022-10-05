@@ -24,7 +24,7 @@ def parse_args():
         "--camera-file", default="data/left_image_cameras.xml",
     )
     parser.add_argument("--topic", default="/left/mapping/image_raw")
-    parser.add_argument("--output-dir", default="/data/global_cloud")
+    parser.add_argument("--output-dir", default="data/global_cloud")
     args = parser.parse_args()
     return args
 
