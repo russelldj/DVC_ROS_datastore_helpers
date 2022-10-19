@@ -53,8 +53,13 @@ def parse_args():
         action="store_true",
         help="Assume that input is stored as a Bayered image",
     )
-    parser.add_argument("--debayer-mode", choices=DEBAYER_MAP.keys(), default="GB")
+    parser.add_argument("--debayer-mode", choices=DEBAYER_MAP.keys(), default="GB", help="GB is for the new payload, BG is for the old payload")
     parser.add_argument("--video-file", help="Save results to a video file")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print bagfile names",
+    )
 
     args = parser.parse_args()
     return args
@@ -123,6 +128,9 @@ def main():
         % (args.bag_files, args.image_topic, args.output_dir)
     )
     files = sorted(glob(args.bag_files))
+    if args.dry_run:
+        print(files[args.start_index : args.end_index])
+        return
 
     output_dir = os.path.join(
         args.output_dir, args.image_topic[1:-10].replace("/", "_")
