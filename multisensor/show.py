@@ -16,9 +16,9 @@ def parse_args():
     return args
 
 
-def main(centers_filename, transformed_dir, step, number, filter_gray):
+def main(centers_filename, transformed_dir, start, step, number, filter_gray):
     centers = np.load(centers_filename)
-    files = sorted(Path(transformed_dir).glob("*npy"))[:number:step]
+    files = sorted(Path(transformed_dir).glob("*npy"))[start:number:step]
     lidar_points = np.concatenate([np.load(x) for x in files], axis=0)
 
     gray = np.logical_and.reduce(
@@ -44,5 +44,12 @@ def main(centers_filename, transformed_dir, step, number, filter_gray):
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.centers, args.transformed_dir, args.step, args.number, args.filter_gray)
+    main(
+        args.centers,
+        args.transformed_dir,
+        args.start,
+        args.step,
+        args.number,
+        args.filter_gray,
+    )
 

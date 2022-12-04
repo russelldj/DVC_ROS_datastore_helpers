@@ -4,8 +4,9 @@ from turtle import color, width
 import rospy
 from sensor_msgs.msg import PointCloud2, Image
 from project import texture_lidar
+import pdb
 
-
+from scipy.spatial.transform import Rotation
 import argparse
 import os
 import rosbag
@@ -27,6 +28,10 @@ def parse_args():
     parser.add_argument("--output-dir", default="data/global_cloud")
     args = parser.parse_args()
     return args
+
+def matrix_to_quat(matrix):
+    r = Rotation.from_dcm(matrix)
+    return r.as_quat()
 
 
 def parse_transforms(camera_file):
@@ -278,12 +283,16 @@ class Projector:
 
     def save_centers(self):
         centers = []
+        rotations = []
 
         for transform in self.transforms:
             centers.append(project(transform))
+            rotations.append(matrix_to_quat(transform[:3,:3]))
 
         centers = np.vstack(centers)
-        np.save("data/centers.npy", centers)
+        rotations = np.vstack(rotations)
+        poses = np.concatenate((centers,rotations), axis=1)
+        np.save("data/poses.npy", poses)
 
 
 if __name__ == "__main__":
@@ -291,5 +300,5 @@ if __name__ == "__main__":
     projector = Projector(output_dir=args.output_dir)
     projector.setup_transforms(args.camera_file)
     projector.save_centers()
-    projector.listen()
+    #projector.listen()
 
