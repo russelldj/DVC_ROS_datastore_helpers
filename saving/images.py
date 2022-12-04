@@ -60,6 +60,7 @@ def parse_args():
         action="store_true",
         help="Print bagfile names",
     )
+    parser.add_argument("--extension", default=".png", help="Saving image extension")
 
     args = parser.parse_args()
     return args
@@ -82,6 +83,7 @@ def save_images_from_bag(
     debayer_mode="GB",
     video_writer=None,
     GPS_topic="/dji_sdk/gps_position",
+    extension=".png"
 ):
     bag = rosbag.Bag(bag_file, "r")
     bridge = CvBridge()
@@ -102,10 +104,10 @@ def save_images_from_bag(
 
         if flip:
             img = np.flip(img, axis=2)
-        image_name = os.path.join(output_dir, "time_%07f.jpg" % t.to_time())
+        image_name = os.path.join(output_dir, "time_%07f" % t.to_time() + extension)
         cv2.imwrite(image_name, img)
 
-        if last_gps is not None:
+        if last_gps is not None and extension==".jpg":
             set_gps_location(
                 image_name, last_gps.latitude, last_gps.longitude, last_gps.altitude
             )
@@ -162,6 +164,7 @@ def main():
             last_time=last_time,
             debayer_mode=args.debayer_mode,
             video_writer=video_writer,
+            extension=args.extension
         )
 
     if video_writer is not None:
