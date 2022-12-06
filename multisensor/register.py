@@ -9,7 +9,6 @@ import pdb
 from scipy.spatial.transform import Rotation
 import argparse
 import os
-import rosbag
 from cv_bridge import CvBridge
 import cv2
 import ros_numpy
@@ -17,6 +16,7 @@ import numpy as np
 import pdb
 from glob import glob
 import xml.etree.ElementTree as ET
+import pdb
 
 
 def parse_args():
@@ -26,8 +26,13 @@ def parse_args():
     )
     parser.add_argument("--topic", default="/left/mapping/image_raw")
     parser.add_argument("--output-dir", default="data/global_cloud")
+    parser.add_argument("--poses-savefile", help="Where to save the poses")
+
     args = parser.parse_args()
+    if args.poses_savefile is None:
+        args.poses_savefile = args.camera_file.replace(".xml", ".txt")
     return args
+
 
 def matrix_to_quat(matrix):
     r = Rotation.from_dcm(matrix)
@@ -48,6 +53,8 @@ def parse_transforms(camera_file):
         # Print the filename
         # Get the transform as a (16,) vector
         transform = camera[0].text
+        if transform is None:
+            continue
         transform = np.fromstring(transform, sep=" ")
         transform = transform.reshape((4, 4))
         # Fix the fact that the transforms are reported in a local scale
@@ -281,24 +288,23 @@ class Projector:
         # spin() simply keeps python from exiting until this node is stopped
         rospy.spin()
 
-    def save_centers(self):
+    def save_centers(self, poses_savefile="stamped_groundtruth.txt"):
         centers = []
         rotations = []
-
         for transform in self.transforms:
             centers.append(project(transform))
-            rotations.append(matrix_to_quat(transform[:3,:3]))
+            rotations.append(matrix_to_quat(transform[:3, :3]))
 
         centers = np.vstack(centers)
         rotations = np.vstack(rotations)
-        poses = np.concatenate((centers,rotations), axis=1)
-        np.save("data/poses.npy", poses)
+        timestamps = np.expand_dims(self.transform_timestamps, axis=1)
+        poses = np.concatenate((timestamps, centers, rotations), axis=1)
+        np.savetxt(poses_savefile, poses, header="timestamp tx ty tz qx qy qz qw")
 
 
 if __name__ == "__main__":
     args = parse_args()
     projector = Projector(output_dir=args.output_dir)
     projector.setup_transforms(args.camera_file)
-    projector.save_centers()
-    #projector.listen()
-
+    projector.save_centers(args.poses_savefile)
+    projector.listen()
