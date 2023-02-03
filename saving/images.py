@@ -49,6 +49,11 @@ def parse_args():
         help="Flip from RGB to BRG or vice versa",
     )
     parser.add_argument(
+        "--rotate-180",
+        action="store_true",
+        help="Rotate the image spatially",
+    )
+    parser.add_argument(
         "--debayer",
         action="store_true",
         help="Assume that input is stored as a Bayered image",
@@ -77,6 +82,7 @@ def save_images_from_bag(
     image_topic,
     output_dir,
     flip,
+    rotate=False,
     delta=0.1,
     debayer=False,
     last_time=0,
@@ -104,6 +110,9 @@ def save_images_from_bag(
 
         if flip:
             img = np.flip(img, axis=2)
+        if rotate:
+            img = np.flip(np.flip(img, axis=0), axis=1)
+
         image_name = os.path.join(output_dir, "time_%07f" % t.to_time() + extension)
         cv2.imwrite(image_name, img)
 
@@ -159,7 +168,8 @@ def main():
             args.image_topic,
             output_dir,
             args.flip_channels,
-            args.delta,
+            rotate=args.rotate_180,
+            delta=args.delta,
             debayer=args.debayer,
             last_time=last_time,
             debayer_mode=args.debayer_mode,
