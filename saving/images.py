@@ -32,13 +32,10 @@ def parse_args():
     parser.add_argument("output_dir", help="Output directory.")
     parser.add_argument("image_topic", help="Image topic.")
     parser.add_argument(
-        "--start-index",
-        help="Which file to start from if using a wildcard pattern",
-        default=0,
-        type=int,
+        "--start-time", help="What timestamp to start at (unix time)", type=float,
     )
     parser.add_argument(
-        "--end-index", help="Which file to end on if using a wildcard pattern", type=int
+        "--end-time", help="What timestamp to end at (unix time)", type=float,
     )
     parser.add_argument(
         "--delta", type=float, help="time between consequetive images", default=0.1
@@ -49,23 +46,24 @@ def parse_args():
         help="Flip from RGB to BRG or vice versa",
     )
     parser.add_argument(
-        "--rotate-180",
-        action="store_true",
-        help="Rotate the image spatially",
+        "--rotate-180", action="store_true", help="Rotate the image spatially",
     )
     parser.add_argument(
         "--debayer",
         action="store_true",
         help="Assume that input is stored as a Bayered image",
     )
-    parser.add_argument("--debayer-mode", choices=DEBAYER_MAP.keys(), default="GB", help="GB is for the new payload, BG is for the old payload")
+    parser.add_argument(
+        "--debayer-mode",
+        choices=DEBAYER_MAP.keys(),
+        default="GB",
+        help="GB is for the new payload, BG is for the old payload",
+    )
     parser.add_argument("--video-file", help="Save results to a video file")
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print bagfile names",
+        "--dry-run", action="store_true", help="Print bagfile names",
     )
-    parser.add_argument("--extension", default=".png", help="Saving image extension")
+    parser.add_argument("--extension", default=".jpg", help="Saving image extension")
 
     args = parser.parse_args()
     return args
@@ -86,10 +84,12 @@ def save_images_from_bag(
     delta=0.1,
     debayer=False,
     last_time=0,
+    start_time=None,
+    end_time=None,
     debayer_mode="GB",
     video_writer=None,
     GPS_topic="/dji_sdk/gps_position",
-    extension=".png"
+    extension=".png",
 ):
     bag = rosbag.Bag(bag_file, "r")
     bridge = CvBridge()
@@ -101,7 +101,12 @@ def save_images_from_bag(
             last_gps = msg
             continue
 
-        if (t.to_time() - last_time) < delta:
+        t_time = t.to_time()
+        if (t_time - last_time) < delta:
+            continue
+        if (start_time is not None and t_time < start_time) or (
+            end_time is not None and t_time > end_time
+        ):
             continue
 
         img = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
@@ -116,7 +121,7 @@ def save_images_from_bag(
         image_name = os.path.join(output_dir, "time_%07f" % t.to_time() + extension)
         cv2.imwrite(image_name, img)
 
-        if last_gps is not None and extension==".jpg":
+        if last_gps is not None and extension == ".jpg":
             set_gps_location(
                 image_name, last_gps.latitude, last_gps.longitude, last_gps.altitude
             )
@@ -139,15 +144,16 @@ def main():
         % (args.bag_files, args.image_topic, args.output_dir)
     )
     files = sorted(glob(args.bag_files))
+
     if args.dry_run:
-        print(files[args.start_index : args.end_index])
+        # TODO make this better
+        print(files)
         return
 
     output_dir = os.path.join(
         args.output_dir, args.image_topic[1:-10].replace("/", "_")
     )
 
-    print(output_dir)
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
 
@@ -161,7 +167,8 @@ def main():
         video_writer = None
 
     last_time = 0
-    for file in files[args.start_index : args.end_index]:
+
+    for file in files:
         print("processing {}".format(file))
         last_time = save_images_from_bag(
             file,
@@ -172,9 +179,11 @@ def main():
             delta=args.delta,
             debayer=args.debayer,
             last_time=last_time,
+            start_time=args.start_time,
+            end_time=args.end_time,
             debayer_mode=args.debayer_mode,
             video_writer=video_writer,
-            extension=args.extension
+            extension=args.extension,
         )
 
     if video_writer is not None:
