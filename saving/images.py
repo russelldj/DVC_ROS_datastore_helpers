@@ -34,6 +34,7 @@ def parse_args():
         "--GPS-bag-files",
         help="Optional path to bags with GPS, if not in the image bags. Input ROS bag or quoted wildcard pattern.",
     )
+    parser.add_argument("--save-GPS", action="store_true", help="Save GPS to json file")
     parser.add_argument(
         "--start-time", help="What timestamp to start at (unix time)", type=float,
     )
@@ -99,6 +100,7 @@ def save_images_from_bag(
     delta=0.1,
     debayer=False,
     last_time=0,
+    last_img=None,
     start_time=None,
     end_time=None,
     debayer_mode="GB",
@@ -128,14 +130,20 @@ def save_images_from_bag(
             img = np.flip(np.flip(img, axis=0), axis=1)
 
         image_name = os.path.join(output_dir, "time_%07f" % t.to_time() + extension)
+
+        if (start_time is not None) and last_time < start_time and t_time > start_time:
+            cv2.imshow("first img", img)
+            cv2.waitKey(0)
+
         cv2.imwrite(image_name, img)
+        last_img = img
 
         if video_writer is not None:
             video_writer.write(img)
         last_time = t.to_time()
 
     bag.close()
-    return last_time
+    return last_time, last_img
 
 
 def main():
@@ -145,11 +153,12 @@ def main():
 
     image_bag_files = sorted(glob(args.image_bag_files))
 
-    # Handle GPS files
-    if args.GPS_bag_files is not None:
-        gps_bag_files = sorted(glob(args.image_bag_files))
-    else:
-        gps_bag_files = image_bag_files
+    if args.save_GPS:
+        # Handle GPS files
+        if args.GPS_bag_files is not None:
+            gps_bag_files = sorted(glob(args.image_bag_files))
+        else:
+            gps_bag_files = image_bag_files
 
     if args.dry_run:
         # TODO make this better
@@ -174,20 +183,21 @@ def main():
 
     last_time = 0
 
-    gps_dict = {}
-    gps_file = os.path.join(output_dir, "gps_info.json")
+    if args.save_GPS:
+        gps_dict = {}
+        gps_file = os.path.join(output_dir, "gps_info.json")
 
-    for file in gps_bag_files:
-        print("Reading GPS from " + file)
-        gps_dict = read_GPS(file, gps_dict=gps_dict, gps_topic=args.GPS_topic)
-        # Save incrementally to allow early inspection
-        with open(gps_file, "w") as gps_file_h:
-            gps_file_h.write(json.dumps(gps_dict))
+        for file in gps_bag_files:
+            print("Reading GPS from " + file)
+            gps_dict = read_GPS(file, gps_dict=gps_dict, gps_topic=args.GPS_topic)
+            # Save incrementally to allow early inspection
+            with open(gps_file, "w") as gps_file_h:
+                gps_file_h.write(json.dumps(gps_dict))
 
-
+    last_img = None
     for file in image_bag_files:
         print("processing {}".format(file))
-        last_time = save_images_from_bag(
+        last_time, last_img = save_images_from_bag(
             file,
             args.image_topic,
             output_dir,
@@ -196,12 +206,17 @@ def main():
             delta=args.delta,
             debayer=args.debayer,
             last_time=last_time,
+            last_img=last_img,
             start_time=args.start_time,
             end_time=args.end_time,
             debayer_mode=args.debayer_mode,
             video_writer=video_writer,
             extension=args.extension,
         )
+
+    if last_img is not None:
+        cv2.imshow("last img", last_img)
+        cv2.waitKey(0)
 
     if video_writer is not None:
         video_writer.close()
