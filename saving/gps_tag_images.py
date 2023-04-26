@@ -2,7 +2,7 @@ import piexif
 import numpy as np
 import argparse
 from fractions import Fraction
-import glob
+from glob import glob
 import json
 
 
@@ -79,21 +79,26 @@ def parse_args():
     parser.add_argument(
         "GPS_file", help="Json with GPS information.",
     )
+    args = parser.parse_args()
+    return args
 
-
-def main(gps_file, image_files):
+def main(image_files, gps_file):
 
     image_files = sorted(glob(image_files))
 
     with open(gps_file, "r") as gps_file_h:
         gps_dict = json.load(gps_file_h)
 
-    sorted_timestamps = np.array(list(sorted(gps_dict)))
+    gps_dict = {float(k): v for k, v in gps_dict.items()}
+    sorted_timestamps = np.array(list(sorted(list(gps_dict.keys()))))
+    min_diffs = []
 
     for image_file in image_files:
-        image_timestamp = float(image_file[-15:-3])
-        diffs = sorted_timestamps - image_timestamp
+        image_timestamp = float(image_file.split("/")[-1][5:-4])
+        diffs = np.abs(sorted_timestamps - image_timestamp)
         min_ind = np.argmin(diffs)
+        min_diff = diffs[min_ind]
+        min_diffs.append(min_diff)
         min_diff_timestamp = sorted_timestamps[min_ind]
         gps_info = gps_dict[min_diff_timestamp]
         # find the closest timestamp in the dict
@@ -104,8 +109,9 @@ def main(gps_file, image_files):
             lng=gps_info["lon"],
             altitude=gps_info["alt"],
         )
+    print(f"mean time difference {np.mean(min_diffs)}, max time difference {np.max(min_diffs)}")
 
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.gps_bag_files, gps_topic=args.GPS_topic)
+    main(args.image_files, gps_file=args.GPS_file)

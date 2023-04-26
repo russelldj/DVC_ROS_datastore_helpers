@@ -17,7 +17,6 @@ import rosbag
 from cv_bridge import CvBridge
 import numpy as np
 from glob import glob
-from saving.gps_tag_images import set_gps_location
 
 DEBAYER_MAP = {"BG": cv2.COLOR_BayerBG2RGB, "GB": cv2.COLOR_BayerGB2RGB}
 
@@ -30,7 +29,7 @@ def parse_args():
     )
     parser.add_argument("output_dir", help="Output directory.")
     parser.add_argument("image_topic", help="Image topic.")
-    parser.add_argument("--GPS-topic", help="GPS topic.", default="/vectornav/GPS")
+    parser.add_argument("--GPS-topic", help="GPS topic.", default="/fix")
     parser.add_argument(
         "--GPS-bag-files",
         help="Optional path to bags with GPS, if not in the image bags. Input ROS bag or quoted wildcard pattern.",
@@ -82,13 +81,11 @@ def create_video_writer(file_path, FPS=30, wh=(1384, 1032)):
 def read_GPS(bag_file, gps_dict, gps_topic):
     bag = rosbag.Bag(bag_file, "r")
     for _, msg, t in bag.read_messages(topics=[gps_topic]):
-        time = t.to_time()
-        # TODO consider processing this into the fields
-
+        time = float(t.to_time())
         gps_dict[time] = {
-            "lat": msg.latitude,
-            "lon": msg.longitude,
-            "alt": msg.altitude,
+            "lat": float(msg.latitude),
+            "lon": float(msg.longitude),
+            "alt": float(msg.altitude),
         }
     return gps_dict
 
@@ -177,14 +174,16 @@ def main():
 
     last_time = 0
 
-    GPS_dict = {}
-    for file in gps_bag_files:
-        GPS_dict = read_GPS(file, GPS_dict=GPS_dict, GPS_topic=args.GPS_topic)
-
+    gps_dict = {}
     gps_file = os.path.join(output_dir, "gps_info.json")
 
-    with open(gps_file) as gps_file_h:
-        gps_file_h.write(json.dumps(GPS_dict))
+    for file in gps_bag_files:
+        print("Reading GPS from " + file)
+        gps_dict = read_GPS(file, gps_dict=gps_dict, gps_topic=args.GPS_topic)
+        # Save incrementally to allow early inspection
+        with open(gps_file, "w") as gps_file_h:
+            gps_file_h.write(json.dumps(gps_dict))
+
 
     for file in image_bag_files:
         print("processing {}".format(file))
