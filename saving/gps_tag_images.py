@@ -1,6 +1,9 @@
-import os
 import piexif
+import numpy as np
+import argparse
 from fractions import Fraction
+import glob
+import json
 
 
 def to_deg(value, loc):
@@ -66,3 +69,43 @@ def set_gps_location(file_name, lat, lng, altitude):
     exif_dict = {"GPS": gps_ifd}
     exif_bytes = piexif.dump(exif_dict)
     piexif.insert(exif_bytes, file_name)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Tag images on disk with GPS from a rosbag."
+    )
+    parser.add_argument("image_files", help="A wildcard pattern for the images.")
+    parser.add_argument(
+        "GPS_file", help="Json with GPS information.",
+    )
+
+
+def main(gps_file, image_files):
+
+    image_files = sorted(glob(image_files))
+
+    with open(gps_file, "r") as gps_file_h:
+        gps_dict = json.load(gps_file_h)
+
+    sorted_timestamps = np.array(list(sorted(gps_dict)))
+
+    for image_file in image_files:
+        image_timestamp = float(image_file[-15:-3])
+        diffs = sorted_timestamps - image_timestamp
+        min_ind = np.argmin(diffs)
+        min_diff_timestamp = sorted_timestamps[min_ind]
+        gps_info = gps_dict[min_diff_timestamp]
+        # find the closest timestamp in the dict
+        # Tag the data
+        set_gps_location(
+            image_file,
+            lat=gps_info["lat"],
+            lng=gps_info["lon"],
+            altitude=gps_info["alt"],
+        )
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    main(args.gps_bag_files, gps_topic=args.GPS_topic)

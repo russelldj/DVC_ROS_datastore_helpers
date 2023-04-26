@@ -7,30 +7,34 @@
 """Extract images from a rosbag.
 """
 
-import imp
 import pdb
-from tkinter import image_names
-import piexif
 import argparse
 import os
-import pdb
+import json
 
 import cv2
 import rosbag
 from cv_bridge import CvBridge
 import numpy as np
 from glob import glob
-import matplotlib.pyplot as plt
-from gps import set_gps_location
+from saving.gps_tag_images import set_gps_location
 
 DEBAYER_MAP = {"BG": cv2.COLOR_BayerBG2RGB, "GB": cv2.COLOR_BayerGB2RGB}
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Extract images from a ROS bag.")
-    parser.add_argument("bag_files", help="Input ROS bag or quoted wildcard pattern.")
+    parser.add_argument(
+        "image_bag_files",
+        help="Path to bags with images. Input ROS bag or quoted wildcard pattern.",
+    )
     parser.add_argument("output_dir", help="Output directory.")
     parser.add_argument("image_topic", help="Image topic.")
+    parser.add_argument("--GPS-topic", help="GPS topic.", default="/vectornav/GPS")
+    parser.add_argument(
+        "--GPS-bag-files",
+        help="Optional path to bags with GPS, if not in the image bags. Input ROS bag or quoted wildcard pattern.",
+    )
     parser.add_argument(
         "--start-time", help="What timestamp to start at (unix time)", type=float,
     )
@@ -75,6 +79,20 @@ def create_video_writer(file_path, FPS=30, wh=(1384, 1032)):
     return writer
 
 
+def read_GPS(bag_file, gps_dict, gps_topic):
+    bag = rosbag.Bag(bag_file, "r")
+    for _, msg, t in bag.read_messages(topics=[gps_topic]):
+        time = t.to_time()
+        # TODO consider processing this into the fields
+
+        gps_dict[time] = {
+            "lat": msg.latitude,
+            "lon": msg.longitude,
+            "alt": msg.altitude,
+        }
+    return gps_dict
+
+
 def save_images_from_bag(
     bag_file,
     image_topic,
@@ -88,18 +106,12 @@ def save_images_from_bag(
     end_time=None,
     debayer_mode="GB",
     video_writer=None,
-    GPS_topic="/dji_sdk/gps_position",
     extension=".png",
 ):
     bag = rosbag.Bag(bag_file, "r")
     bridge = CvBridge()
 
-    last_gps = None
-
-    for topic, msg, t in bag.read_messages(topics=[image_topic, GPS_topic]):
-        if topic == GPS_topic:
-            last_gps = msg
-            continue
+    for _, msg, t in bag.read_messages(topics=[image_topic]):
 
         t_time = t.to_time()
         if (t_time - last_time) < delta:
@@ -121,11 +133,6 @@ def save_images_from_bag(
         image_name = os.path.join(output_dir, "time_%07f" % t.to_time() + extension)
         cv2.imwrite(image_name, img)
 
-        if last_gps is not None and extension == ".jpg":
-            set_gps_location(
-                image_name, last_gps.latitude, last_gps.longitude, last_gps.altitude
-            )
-
         if video_writer is not None:
             video_writer.write(img)
         last_time = t.to_time()
@@ -139,15 +146,17 @@ def main():
     """
     args = parse_args()
 
-    print(
-        "Extract images from %s on topic %s into %s"
-        % (args.bag_files, args.image_topic, args.output_dir)
-    )
-    files = sorted(glob(args.bag_files))
+    image_bag_files = sorted(glob(args.image_bag_files))
+
+    # Handle GPS files
+    if args.GPS_bag_files is not None:
+        gps_bag_files = sorted(glob(args.image_bag_files))
+    else:
+        gps_bag_files = image_bag_files
 
     if args.dry_run:
         # TODO make this better
-        print(files)
+        print(image_bag_files, gps_bag_files)
         return
 
     output_dir = os.path.join(
@@ -168,7 +177,16 @@ def main():
 
     last_time = 0
 
-    for file in files:
+    GPS_dict = {}
+    for file in gps_bag_files:
+        GPS_dict = read_GPS(file, GPS_dict=GPS_dict, GPS_topic=args.GPS_topic)
+
+    gps_file = os.path.join(output_dir, "gps_info.json")
+
+    with open(gps_file) as gps_file_h:
+        gps_file_h.write(json.dumps(GPS_dict))
+
+    for file in image_bag_files:
         print("processing {}".format(file))
         last_time = save_images_from_bag(
             file,
