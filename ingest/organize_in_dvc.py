@@ -44,8 +44,8 @@ def main(input_dir, output_dir, data_name, copy, repeat_push=5, push_jobs=4):
             os.makedirs(output_folder_name.parent, exist_ok=True)
             os.rename(input_folder_name, output_folder_name)
     os.chdir(output_dir)
-    #
-    os.system(f"dvc add -R {output_dir}")
+    for output_folder_name in output_folder_names:
+        os.system(f"dvc add -R {output_folder_name}")
     for _ in range(repeat_push):
         os.system(f"dvc push -R {output_dir} -j {push_jobs}")
 
