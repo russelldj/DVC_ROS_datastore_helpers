@@ -66,8 +66,8 @@ def parse_args():
     parser.add_argument(
         "--debayer-mode",
         choices=DEBAYER_MAP.keys(),
-        default="GB",
-        help="GB is for the new payload, BG is for the old payload",
+        default="BG",
+        help="BG is for the new payload, GB is for the old payload",
     )
     parser.add_argument("--video-file", help="Save results to a video file")
     parser.add_argument(
