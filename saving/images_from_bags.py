@@ -11,6 +11,7 @@ import pdb
 import argparse
 import os
 import json
+import copy
 
 import cv2
 import rosbag
@@ -40,6 +41,11 @@ def parse_args():
     )
     parser.add_argument(
         "--end-time", help="What timestamp to end at (unix time)", type=float,
+    )
+    parser.add_argument(
+        "--skip-not-at-survey-altitude",
+        help="skip files which are not estimated to be at survey altitude",
+        action="store_true",
     )
     parser.add_argument(
         "--delta", type=float, help="time between consequetive images", default=0.1
@@ -73,6 +79,16 @@ def parse_args():
     return args
 
 
+def get_nearest_gps_file(gps_dict, image_timestamp):
+    timestamps = np.array(list(gps_dict.keys()))
+
+    diffs = np.abs(timestamps - image_timestamp)
+    min_ind = np.argmin(diffs)
+    min_diff_timestamp = timestamps[min_ind]
+    gps_info = gps_dict[min_diff_timestamp]
+    return gps_info
+
+
 def create_video_writer(file_path, FPS=30, wh=(1384, 1032)):
     fourcc = cv2.VideoWriter_fourcc("m", "p", "4", "v")
     writer = cv2.VideoWriter(file_path, fourcc, FPS, wh)
@@ -91,6 +107,39 @@ def read_GPS(bag_file, gps_dict, gps_topic):
     return gps_dict
 
 
+def estimate_at_altitude(gps_dict, bin_size=0.5):
+    """Edits the array to include an estimate of whether it's at altitude
+
+    Args:
+        gps_dict (_type_): _description_
+    """
+    # Avoid copying the original dict by reference
+    gps_dict = copy.copy(gps_dict)
+    data_array = np.array(
+        [[k, v["lat"], v["lon"], v["alt"]] for k, v in gps_dict.items()]
+    ).astype(float)
+
+    altitudes = data_array[:, 3]
+
+    range_of_values = np.max(altitudes) - np.min(altitudes)
+    n_bins = int(range_of_values / bin_size)
+    hist, bin_edges = np.histogram(altitudes, bins=n_bins)
+    # The center of the bin with the most values
+    most_common_altitude = bin_edges[np.argmax(hist)] + bin_size / 2
+    diffs_to_most_common = np.abs(altitudes - most_common_altitude)
+
+    at_survey_altitude_bools = diffs_to_most_common < bin_size * 1.5
+
+    for timestep, at_survey_altitude in zip(data_array[:, 0], at_survey_altitude_bools):
+        # Extract current values
+        values = gps_dict[timestep]
+        # Add a new field
+        # Note that this is set in gps_dict because values is only a shallow copy
+        values["at_survey_altitude"] = bool(at_survey_altitude)
+
+    return gps_dict
+
+
 def save_images_from_bag(
     bag_file,
     image_topic,
@@ -103,6 +152,8 @@ def save_images_from_bag(
     last_img=None,
     start_time=None,
     end_time=None,
+    skip_not_at_alt=True,
+    gps_dict=None,
     debayer_mode="GB",
     video_writer=None,
     extension=".png",
@@ -119,6 +170,12 @@ def save_images_from_bag(
             end_time is not None and t_time > end_time
         ):
             continue
+
+        # Skip if not at survey altitude
+        if skip_not_at_alt and gps_dict is not None:
+            values = get_nearest_gps_file(gps_dict=gps_dict, image_timestamp=t_time)
+            if not values["at_survey_altitude"]:
+                continue
 
         img = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
         if debayer:
@@ -183,6 +240,7 @@ def main():
 
     last_time = 0
 
+    gps_dict = None
     if args.save_GPS:
         gps_dict = {}
         gps_file = os.path.join(output_dir, "gps_info.json")
@@ -193,6 +251,11 @@ def main():
             # Save incrementally to allow early inspection
             with open(gps_file, "w") as gps_file_h:
                 gps_file_h.write(json.dumps(gps_dict))
+
+        gps_dict = estimate_at_altitude(gps_dict)
+        # Save one last time with at_altitude_flag
+        with open(gps_file, "w") as gps_file_h:
+            gps_file_h.write(json.dumps(gps_dict))
 
     last_img = None
     for file in image_bag_files:
@@ -209,6 +272,8 @@ def main():
             last_img=last_img,
             start_time=args.start_time,
             end_time=args.end_time,
+            skip_not_at_alt=args.skip_not_at_survey_altitude,
+            gps_dict=gps_dict,
             debayer_mode=args.debayer_mode,
             video_writer=video_writer,
             extension=args.extension,
