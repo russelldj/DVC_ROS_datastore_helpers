@@ -10,6 +10,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--folder")
     parser.add_argument("--template-yaml-file")
+    parser.add_argument("--output-name", default="collect_info.yaml")
+    parser.add_argument("--dont-add_to_git", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -65,4 +68,10 @@ def main(
 
 if __name__ == "__main__":
     args = parse_args()
-    main(folder=args.folder, template_yaml_file=args.template_yaml_file)
+    main(
+        folder=args.folder,
+        template_yaml_file=args.template_yaml_file,
+        output_name=args.output_name,
+        add_to_git=not args.dont_add_to_git,
+        overwrite=args.overwrite,
+    )
