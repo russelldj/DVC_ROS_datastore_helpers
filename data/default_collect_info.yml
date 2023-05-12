@@ -1,26 +1,33 @@
 environment:
-  gps_location: null
-  lighting_conditions: null
-  local_time: null
-  wind_speed: null
+  year: null # YYYY
+  month: null # MM
+  day: null # DD
+  gps_location: [null, null] # lat, long
+  lighting_conditions: "" # sunny, overcast, variable, low-angle
+  local_time: null # HH:MM
+  wind_speed: null # M/S
 flight_plan:
-  above_canopy: null
-  autonomous: null
-  flight_speed: null
-  target_altitude: null
+  above_canopy: null # bool
+  autonomous_survey: null # bool
+  flight_speed: null # M/S
+  target_altitude: null # M above ground
 general:
-  notes: null
-  objective: null
-  people_present: null
+  notes: "" # Freeform notes
+  objective: "" # Goal of the flight
+  people_present: "" # List of names
 payload:
-  camera_exposure: null
-  faulty_sensor_topics: null
-  faulty_sensors_description: null
-  inclination_angle: null
-  quality: null
-  working_sensor_topics: null
+  camera_exposure: -1 # camera exposure in ms
+  missing_sensors_topics: null # A list of ros topic names which didn't show up at all
+  missing_sensors_description: "" # A freeform description of missing topcs
+  faulty_sensor_topics: null # A list of ros topic names for topics which were faulty. Either dropped mid way or were degraded
+  faulty_sensors_description: "" # A freeform description of faulty topic
+  inclination_angle: -1 # Inclination in degrees from horizontal
+  quality: -1 # Qualitative assessment from 1-10, capturing all elements of the collect
+  working_sensor_topics: null # A list of working sensor topics
+  working_sensors_description: "" # A freeform description of working sensor topcsi
+  camera_synced: null # bool, were the cameras used sychnonously or freerun
 time:
-  at_survey_altitude: null
-  finished_survey_altitude: null
-  land: null
-  takeoff: null
+  at_survey_altitude: null # What unix time did the platform get to survey altitude
+  finished_survey_altitude: null # What unix time did the platform leave survey altitude
+  land: null # What unix time to the platform takeoff
+  takeoff: null # What unix time did the platform land

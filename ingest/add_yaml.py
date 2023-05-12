@@ -2,7 +2,7 @@ import os
 import argparse
 from pathlib import Path
 import shutil
-import yaml
+import ruamel.yaml
 import collections
 
 
@@ -28,6 +28,8 @@ def main(
 
     is_new_files = []
 
+    yaml = ruamel.yaml.YAML()
+
     for collect in all_collects:
         output_yaml_file = Path(collect, output_name)
 
@@ -36,10 +38,10 @@ def main(
             is_new_files.append(True)
         else:  # merge with existing data
             with open(output_yaml_file, "r") as output_yaml_file_h:
-                existing_yaml_data = yaml.safe_load(output_yaml_file_h)
+                existing_yaml_data = yaml.load(output_yaml_file_h)
 
             with open(template_yaml_file, "r") as template_yaml_file_h:
-                template_yaml_data = yaml.safe_load(template_yaml_file_h)
+                template_yaml_data = yaml.load(template_yaml_file_h)
 
             if existing_yaml_data is None:
                 existing_yaml_data = template_yaml_data
